@@ -4,7 +4,6 @@
 void svf_nnrf_handle_nf_discover(
         ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg)
 {
-    ogs_warn("Arrived at NRF handle discover!!!");
 
     ogs_sbi_nf_instance_t *nf_instance = NULL;
     ogs_sbi_object_t *sbi_object = NULL;

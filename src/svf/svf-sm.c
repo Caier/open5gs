@@ -2,6 +2,8 @@
 #include "svf-sm.h"
 #include "nnrf-handler.h"
 
+extern OGS_POOL(svf_sess_pool, svf_sess_t);
+
 void svf_state_initial(ogs_fsm_t *s, svf_event_t *e)
 {
     svf_sm_debug(e);
@@ -38,6 +40,8 @@ void svf_state_operational(ogs_fsm_t *s, svf_event_t *e)
     svf_sm_debug(e);
 
     ogs_assert(s);
+
+    // __asm__ ("int3");
 
     switch (e->h.id) {
     case OGS_FSM_ENTRY_SIG:
@@ -134,7 +138,7 @@ void svf_state_operational(ogs_fsm_t *s, svf_event_t *e)
             break;
         }
 
-        if (strcmp(message.h.api.version, OGS_SBI_API_V1) != 0) {
+        if (strcmp(message.h.api.version, OGS_SBI_API_V1) != 0 && strcmp(message.h.api.version, OGS_SBI_API_V2) != 0) {
             ogs_error("Not supported version [%s]", message.h.api.version);
             ogs_sbi_message_free(&message);
             ogs_sbi_response_free(response);
@@ -243,7 +247,39 @@ void svf_state_operational(ogs_fsm_t *s, svf_event_t *e)
                 ogs_assert_if_reached();
             END
             break;
+        
+        CASE("nudm-sdm")
+            __asm__ ("int3");
+            // `message` has the full decoded response
 
+            break;
+
+        CASE("nudr-dr") {
+            ogs_sbi_xact_t* sbi_xact = ogs_sbi_xact_find_by_id(OGS_POINTER_TO_UINT(e->h.sbi.data));
+            int32_t sbi_obj_id = sbi_xact->sbi_object_id;
+            svf_sess_t* sess = ogs_pool_find_by_id(&svf_sess_pool, sbi_obj_id);
+            ogs_assert(sess);
+
+            ogs_thread_mutex_lock(sess->mutex);
+
+            if (message.res_status == OGS_SBI_HTTP_STATUS_OK) {
+                ogs_assert(message.AuthenticationSubscription);
+                strcpy(sess->response, message.AuthenticationSubscription->enc_permanent_key);
+            } else {
+                ogs_error("HTTP response error [%d]", message.res_status);
+                strcpy(sess->response, "ERROR");
+            }
+
+            ogs_thread_cond_signal(sess->cond);
+            ogs_thread_mutex_unlock(sess->mutex);
+
+            ogs_free(sess->sbi.service_type_array[OGS_SBI_SERVICE_TYPE_NUDR_DR].nf_instance_id);
+            ogs_pool_free(&svf_sess_pool, sess);
+            ogs_sbi_xact_remove(sbi_xact);
+
+            break;
+        }
+        
         DEFAULT
             ogs_error("Invalid service name [%s]", message.h.service.name);
             ogs_assert_if_reached();
@@ -357,25 +393,20 @@ void svf_state_operational(ogs_fsm_t *s, svf_event_t *e)
                     ogs_timer_get_name(e->h.timer_id), e->h.timer_id);
         }
         break;
-
-    case WHAT_ARE_EVENTS_IDONT_KNOW:
-        ogs_assert(e);
-        
-        ogs_warn("WHAT NOW?????");
     
-        // switch(e->local_id) {
-        // case SVF_LOCAL_DISCOVER_AND_SEND:
-        //     svf_sbi_discover_and_send(e->local.service_type, NULL,
-        //             e->local.build, e->sess, e->local.data);
-        //     break;
-        // case SVF_LOCAL_SEND_TO_PCF:
-        //     svf_sbi_send_to_pcf(e->sess, e->local.data, e->local.build);
-        //     break;
-        // default:
-        //     ogs_error("Unknown local[%s:%d]",
-        //             svf_local_get_name(e->local_id), e->local_id);
-        // }
+    case QUERY_AUTH_DATA_REQUEST: {
+        ogs_assert(e);
+
+        ogs_pool_id_calloc(&svf_sess_pool, &sess);
+        sess->sbi.type = OGS_SBI_OBJ_SESS_TYPE;
+        sess->mutex = e->data.query_auth_data_req.mutex;
+        sess->cond = e->data.query_auth_data_req.cond;
+        sess->response = e->data.query_auth_data_req.response;
+
+        svf_sbi_discover_and_send(OGS_SBI_SERVICE_TYPE_NUDR_DR, NULL, svf_build_nudr_query_auth, sess, (void*)e->data.query_auth_data_req.imsi);
+
         break;
+    }
 
     default:
         ogs_error("No handler for event %s", svf_event_get_name(e));

@@ -1,16 +1,5 @@
 #include "event.h"
 
-svf_event_t *svf_event_new(int id)
-{
-    svf_event_t *e = NULL;
-
-    e = ogs_event_size(id, sizeof(svf_event_t));
-    ogs_assert(e);
-
-    e->h.id = id;
-
-    return e;
-}
 
 const char *svf_event_get_name(svf_event_t *e)
 {
@@ -31,8 +20,8 @@ const char *svf_event_get_name(svf_event_t *e)
     case OGS_EVENT_SBI_TIMER:
         return OGS_EVENT_NAME_SBI_TIMER;
 
-    case WHAT_ARE_EVENTS_IDONT_KNOW:
-        return "WHAT_ARE_EVENTS_IDONT_KNOW";
+    case QUERY_AUTH_DATA_REQUEST:
+        return "QUERY_AUTH_DATA_REQUEST";
 
     default: 
        break;
